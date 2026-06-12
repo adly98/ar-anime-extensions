@@ -425,7 +425,7 @@ class Jkanime :
 
                 "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, prefix = "$lang ", headers = headers)
 
-                "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = "$lang ")
+                "mixdrop" -> mixDropExtractor.videosFromUrl(url, prefix = "$lang ")
 
                 // Removed StreamWish extractor because it is causing timeout errors and significantly increasing load times.
                 // "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$lang StreamWish:$it" }) // Use UniversalExtractor

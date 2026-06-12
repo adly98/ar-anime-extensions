@@ -188,7 +188,7 @@ class AsiaFlix :
                 }
 
                 hostUrl.contains("mixdrop") -> {
-                    mixDropExtractor.videoFromUrl(hostUrl)
+                    mixDropExtractor.videosFromUrl(hostUrl)
                 }
 
                 else -> {

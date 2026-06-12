@@ -384,7 +384,7 @@ class JavGuru :
         }
 
         listOf("mixdrop", "mixdroop").any { it in hosterUrl } -> {
-            mixDropExtractor.videoFromUrl(hosterUrl)
+            mixDropExtractor.videosFromUrl(hosterUrl)
         }
 
         hosterUrl.contains("maxstream") -> {

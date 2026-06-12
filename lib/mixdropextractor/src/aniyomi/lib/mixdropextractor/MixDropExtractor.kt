@@ -13,7 +13,7 @@ class MixDropExtractor(private val client: OkHttpClient) {
 
     fun canHandleUrl(url: String) = MIX_DROP_REGEX.containsMatchIn(url)
 
-    fun videoFromUrl(
+    fun videosFromUrl(
         url: String,
         quality: String = "",
         prefix: String = "",
