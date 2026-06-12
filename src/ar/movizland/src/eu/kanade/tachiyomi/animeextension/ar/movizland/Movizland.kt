@@ -198,7 +198,7 @@ class Movizland :
                     voeExtractor.videosFromUrl(url)
                 }
                 mixDropExtractor.canHandleUrl(url) -> {
-                    mixDropExtractor.videoFromUrl(url)
+                    mixDropExtractor.videosFromUrl(url)
                 }
                 doodExtractor.canHandleUrl(url) -> {
                     doodExtractor.videosFromUrl(url)
