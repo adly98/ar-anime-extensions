@@ -259,7 +259,7 @@ class TRAnimeIzle :
         return when {
             "filemoon.sx" in url -> filemoonExtractor.videosFromUrl(url, headers = headers)
 
-            "mixdrop" in url -> mixDropExtractor.videoFromUrl(url)
+            "mixdrop" in url -> mixDropExtractor.videosFromUrl(url)
 
             "mp4upload" in url -> mp4uploadExtractor.videosFromUrl(url, headers)
 
