@@ -19,14 +19,11 @@ class MixDropExtractor(private val client: OkHttpClient) {
         prefix: String = "",
         externalSubs: List<Track> = emptyList(),
     ): List<Video> {
-        val headers = Headers.headersOf(
-            "Referer",
-            url,
-            "Upgrade-Insecure-Requests",
-            "1",
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0",
-        )
+        val headers = Headers.Builder().apply {
+            add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0")
+            add("Referer", url)
+            add("Upgrade-Insecure-Requests", "1")
+        }.build()
         val doc = client.newCall(GET(url, headers = headers)).execute().asJsoup()
         val unpacked = doc.selectFirst("script:containsData(eval):containsData(MDCore)")
             ?.data()
