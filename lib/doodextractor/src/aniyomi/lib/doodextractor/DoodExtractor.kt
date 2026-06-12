@@ -9,6 +9,8 @@ import java.net.URI
 
 class DoodExtractor(private val client: OkHttpClient) {
 
+    fun canHandleUrl(url: String) = DOOD_REGEX.containsMatchIn(url)
+
     fun videoFromUrl(
         url: String,
         prefix: String? = null,
@@ -23,25 +25,21 @@ class DoodExtractor(private val client: OkHttpClient) {
             val content = response.body.string()
             if (!content.contains("'/pass_md5/")) return null
 
-            // Obtener la calidad del título de la página
             val extractedQuality = Regex("\\d{3,4}p")
                 .find(content.substringAfter("<title>").substringBefore("</title>"))
                 ?.groupValues
                 ?.getOrNull(0)
 
-            // Determinar la calidad a usar
             val newQuality = listOfNotNull(
                 prefix,
                 "Doodstream " + (extractedQuality ?: (if (redirect) "mirror" else "")),
             ).joinToString(" - ")
 
-            // Obtener el hash MD5
             val md5 = doodHost + (Regex("/pass_md5/[^']*").find(content)?.value ?: return null)
             val token = md5.substringAfterLast("/")
             val randomString = createHashTable()
             val expiry = System.currentTimeMillis()
 
-            // Obtener la URL del video
             val videoUrlStart = client.newCall(
                 GET(
                     md5,
@@ -62,7 +60,6 @@ class DoodExtractor(private val client: OkHttpClient) {
         return video?.let(::listOf) ?: emptyList()
     }
 
-    // Método para generar una cadena aleatoria
     private fun createHashTable(length: Int = 10): String {
         val alphabet = ('A'..'Z') + ('a'..'z') + ('0'..'9')
         return buildString {
@@ -72,14 +69,16 @@ class DoodExtractor(private val client: OkHttpClient) {
         }
     }
 
-    // Método para obtener la base de la URL
     private fun getBaseUrl(url: String): String = URI(url).let {
         "${it.scheme}://${it.host}"
     }
 
-    // Método para obtener headers personalizados
     private fun doodHeaders(host: String) = Headers.Builder().apply {
         add("User-Agent", "Aniyomi")
         add("Referer", "https://$host/")
     }.build()
+
+    companion object {
+        private val DOOD_REGEX by lazy { Regex("""(?://|\.)((?:do*0*o*0*ds?(?:tream|ter|cdn)?|ds[2v](?:play|video)|(?:my)?v*id(?:pla?y|e0)|all3do|d-s|do(?:7go|ply)|playmogo)\.(?:[cit]om?|watch|s[ho]|cx|l[ai]|w[sf]|pm|re|yt|stream|pro|work|net))/[de]/([0-9a-zA-Z]+)""") }
+    }
 }
