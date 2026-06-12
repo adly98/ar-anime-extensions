@@ -160,7 +160,7 @@ class AnimeOnlineNinja :
 
             "streamtape" -> streamTapeExtractor.videosFromUrl(url, "$lang StreamTape")
 
-            "mixdrop" -> mixDropExtractor.videoFromUrl(url, prefix = "$lang ")
+            "mixdrop" -> mixDropExtractor.videosFromUrl(url, prefix = "$lang ")
 
             "uqload" -> uqloadExtractor.videosFromUrl(url, prefix = lang)
 

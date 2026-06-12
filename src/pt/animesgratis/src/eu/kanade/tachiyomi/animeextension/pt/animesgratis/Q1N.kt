@@ -141,7 +141,7 @@ class Q1N :
             "ruplay" in name -> ruplayExtractor.videosFromUrl(url)
             "streamwish" in name -> streamWishExtractor.videosFromUrl(url)
             "filemoon" in name -> filemoonExtractor.videosFromUrl(url)
-            "mixdrop" in name -> mixDropExtractor.videoFromUrl(url)
+            "mixdrop" in name -> mixDropExtractor.videosFromUrl(url)
             "streamtape" in name -> streamTapeExtractor.videosFromUrl(url)
             "noa" in name -> noaExtractor.videosFromUrl(url)
             "mdplayer" in name -> noaExtractor.videosFromUrl(url, name)
