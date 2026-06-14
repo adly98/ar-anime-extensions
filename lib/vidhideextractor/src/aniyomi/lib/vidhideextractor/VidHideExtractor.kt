@@ -23,6 +23,8 @@ class VidHideExtractor(private val client: OkHttpClient, private val headers: He
         ignoreUnknownKeys = true
     }
 
+    fun canHandleUrl(url: String): Boolean = VIDE_HIDE_REGEX.containsMatchIn(url)
+
     suspend fun videosFromUrl(url: String, videoNameGen: (String) -> String = { quality -> "VidHide - $quality" }): List<Video> {
         val script = fetchAndExtractScript(url) ?: return emptyList()
         val playlists = extractVideoUrl(script, url)
@@ -74,7 +76,7 @@ class VidHideExtractor(private val client: OkHttpClient, private val headers: He
     )
 
     companion object {
-        // Capture both `https://domain/master.m3u8?query` and `/domain/master.m3u8?query`
+        private val VIDE_HIDE_REGEX by lazy { Regex("""(?://|\.)((?:filelions|ajmidyadfihayh|alhayabambi|techradar|moflix-stream|azipcdn|[mad]lions|lumiawatch|javplaya|javlion|fviplions|egsyxutd|fdewsdc|vidhide|peytone|anime7u|coolciima|gsfomqu|katomen|dht|6sfkrspw4u|ryderjet|e4xb5c2xnz|smooth|streamvid|movearnpre|bingezove|dingtezuni|dinisglows|motvy55|videoland|mivalyo|lookmovie2|taylorplayer|dintezuvio|callistanise|minochinos|earnvids)(?:pro|vip|pre|plus|hub|fast)?\.(?:su|com?|to|sbs|ink|click|pro|live|store|xyz|top|online|site|fun|skin))/((?:s|v|f|d|e|embed|file|download)/[0-9a-zA-Z$:/.]+)""") }
         private val sourceRegex = Regex(""""((?:https?:/)?/[^"]*m3u8[^"]*)"""")
     }
 }
