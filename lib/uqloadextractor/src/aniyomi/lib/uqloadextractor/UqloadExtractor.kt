@@ -1,34 +1,44 @@
 package aniyomi.lib.uqloadextractor
 
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.utils.useAsJsoup
-import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 
 class UqloadExtractor(private val client: OkHttpClient) {
 
-    companion object {
-        const val BASE_URL = "https://uqload.is/"
+    private val playlistUtils by lazy { PlaylistUtils(client) }
 
-        private val hostRegex by lazy { Regex("""https?://(?:www\.)?[^/]+/""") }
-    }
+    fun canHandleUrl(url: String): Boolean = UQLOAD_REGEX.containsMatchIn(url)
 
     suspend fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
-        val fixedUrl = if (url.startsWith(BASE_URL, true)) url else url.replace(hostRegex, BASE_URL)
-        val doc = client.newCall(GET(fixedUrl)).awaitSuccess().useAsJsoup()
-        val script = doc.selectFirst("script:containsData(sources:)")?.data()
-            ?: return emptyList()
+        val document = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
+        val scriptBody = document.selectFirst("script:containsData(m3u8)")?.data()
+            ?.let { script ->
+                if (script.contains("eval(function(p,a,c")) {
+                    JsUnpacker.unpackAndCombine(script)
+                } else {
+                    script
+                }
+            } ?: return emptyList()
 
-        val videoUrl = script.substringAfter("sources: [\"").substringBefore('"')
-            .takeIf(String::isNotBlank)
-            ?.takeIf { it.startsWith("http") }
-            ?: return emptyList()
+        val masterUrl = M3U8_REGEX.find(scriptBody)?.value ?: return emptyList()
+        return playlistUtils.extractFromHls(
+            playlistUrl = masterUrl,
+            referer = masterUrl.toHttpUrlOrNull()
+                ?.let { "${it.scheme}://${it.host}/" }
+                ?: url.toHttpUrl().let { "${it.scheme}://${it.host}/" },
+            videoNameGen = { "${prefix.ifBlank { "UQload" }}: $it" },
+        )
+    }
 
-        val videoHeaders = Headers.headersOf("Referer", BASE_URL)
-        val quality = if (prefix.isNotBlank()) "${prefix.trim()} Uqload" else "Uqload"
-
-        return listOf(Video(videoUrl, quality, videoUrl, videoHeaders))
+    companion object {
+        private val UQLOAD_REGEX by lazy { Regex("""(?://|\.)(uqload\.(?:[ict]om?|[iw]s|net|cx|bz|org))/(?:embed-)?([0-9a-zA-Z]+)""") }
+        private val M3U8_REGEX by lazy { Regex("""https[^"]*m3u8[^"]*""") }
     }
 }
