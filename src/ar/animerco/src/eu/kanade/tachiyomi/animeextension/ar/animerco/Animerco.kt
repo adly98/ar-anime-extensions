@@ -231,7 +231,7 @@ class Animerco :
                 gdrivePlayerExtractor.videosFromUrl(newUrl, "GdrivePlayer", headers)
             }
 
-            "streamtape" in url -> streamTapeExtractor.videoFromUrl(url)?.let(::listOf)
+            "streamtape" in url -> streamTapeExtractor.videosFromUrl(url)
 
             "4shared" in url -> sharedExtractor.videoFromUrl(url)?.let(::listOf)
 

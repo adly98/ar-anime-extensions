@@ -93,8 +93,7 @@ class AnimeLek :
                 }
 
                 url.contains("streamtape") -> {
-                    StreamTapeExtractor(client).videoFromUrl(url)
-                        ?.let(::listOf).orEmpty()
+                    StreamTapeExtractor(client).videosFromUrl(url)
                 }
 
                 url.contains("4shared") -> {

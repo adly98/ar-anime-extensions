@@ -98,7 +98,7 @@ class Asia2TV :
 
         "ok.ru" in url || "odnoklassniki.ru" in url -> okruExtractor.videosFromUrl(url)
 
-        "streamtape" in url -> streamtapeExtractor.videoFromUrl(url)?.let(::listOf)
+        "streamtape" in url -> streamtapeExtractor.videosFromUrl(url)
 
         STREAM_WISH_DOMAINS.any(url::contains) -> streamwishExtractor.videosFromUrl(url)
 
