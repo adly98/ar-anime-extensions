@@ -1,0 +1,8 @@
+ext {
+    extKmkVersionCode = 0
+    extName = 'Akwam'
+    extClass = '.Akwam'
+    extVersionCode = 1
+}
+
+apply plugin: "kei.plugins.extension.legacy"
