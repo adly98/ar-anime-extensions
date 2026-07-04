@@ -10,4 +10,7 @@ dependencies {
     implementation(project(':lib:doodextractor'))
     implementation(project(':lib:mixdropextractor'))
     implementation(project(':lib:streamwishextractor'))
+    implementation(project(':lib:streamrubyextractor'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:cloudflareinterceptor'))
 }

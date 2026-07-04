@@ -356,7 +356,6 @@ class TopCinema :
             validationMessage = { "عنوان URL غير صالح أو مشوه أو ينتهي بشرطة مائلة" },
         )
     }
-
     companion object {
         private const val BASE_URL = "https://topcinemaa.com"
         private const val PREF_DOMAIN_CUSTOM_KEY = "custom_domain"

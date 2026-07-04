@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.ar.arabseed
 
-import androidx.preference.ListPreference
+import android.content.SharedPreferences
+import android.text.InputType
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
@@ -13,12 +14,22 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.addEditTextPreference
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -28,54 +39,107 @@ class ArabSeed :
 
     override val name = "عرب سيد"
 
-    // TODO: Check frequency of url changes to potentially
-    // add back overridable baseurl preference
-    override val baseUrl = "https://m.asd.homes"
+    override val baseUrl
+        get() = preferences.customDomain.ifBlank { "https://a.asd.ink" }
 
     override val lang = "ar"
 
-    override val supportsLatest = false
+    override val supportsLatest = true
 
-    override fun headersBuilder() = super.headersBuilder().add("Referer", baseUrl)
+    override fun headersBuilder() = super.headersBuilder().add("Referer", "$baseUrl/")
 
+    private val json = Json {
+        isLenient = true
+        ignoreUnknownKeys = true
+    }
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeSelector() = "ul.Blocks-UL div.MovieBlock a"
+    override fun popularAnimeSelector() = "ul.movie__blocks__ul a.movie__block"
 
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/movies/?offset=$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/trend2/")
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
+        title = element.select("div.post__info > h3").text()
+        thumbnail_url = element.selectFirst("img")?.getImageUrl()
         setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst("div.BlockName > h4")!!.text()
-        thumbnail_url = element.selectFirst("div.Poster img")!!.attr("data-src")
     }
 
     override fun popularAnimeNextPageSelector() = "ul.page-numbers li a.next"
 
+    // =============================== Latest ===============================
+    override fun latestUpdatesSelector(): String = popularAnimeSelector()
+
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/recently3/page/$page/")
+
+    override fun latestUpdatesFromElement(element: Element): SAnime = popularAnimeFromElement(element)
+
+    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+
+    // =============================== Search ===============================
+    override fun searchAnimeSelector() = popularAnimeSelector()
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        val url = if (query.isNotBlank()) {
+            "$baseUrl/find/?word=$query&type=&page_numer=$page"
+        } else {
+            val filterList = if (filters.isEmpty()) getFilterList() else filters
+            val typeFilter = filterList.find { it is TypeFilter } as TypeFilter
+            val category = typeFilter.toUriPart()
+            if (category.isEmpty()) throw Exception("اختر فلتر")
+
+            "$baseUrl/category/$category"
+        }
+        return GET(url, headers)
+    }
+
+    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
+
+    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
+
     // ============================== Episode ===============================
-    override fun episodeListSelector() = "div.ContainerEpisodesList a"
+    private fun seasonListSelector(): String = "div#seasons__list li"
+    override fun episodeListSelector() = "ul.episodes__list a"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
+        val url = response.request.url.toString()
+        val csrf = response.bodyString().substringAfter("'csrf__token': \"").substringBefore("\"")
         val document = response.useAsJsoup()
-        val episodes = document.select(episodeListSelector())
+        val seasons = document.select(seasonListSelector())
         return when {
-            episodes.isEmpty() -> {
+            seasons.isEmpty() -> {
                 SEpisode.create().apply {
-                    setUrlWithoutDomain(document.location())
+                    setUrlWithoutDomain("$url/watch/")
                     name = "مشاهدة"
                 }.let(::listOf)
             }
-
-            else -> episodes.map(::episodeFromElement)
+            else -> {
+                val newHeaders = headers.newBuilder().add("x-requested-with", "XMLHttpRequest").build()
+                seasons.flatMap { season ->
+                    if(season.hasClass("selected")) {
+                        document.select(episodeListSelector()).map { episodeFromSeason(it, season.text()) }
+                    } else {
+                        val seasonData = FormBody.Builder().apply {
+                            add("csrf_token", csrf)
+                            add("season_id",season.attr("data-term"))
+                        }.build()
+                        val seasonJson = client.newCall(POST("$url/season__episodes/", newHeaders, seasonData)).execute().bodyString()
+                        val seasonHtml = json.decodeFromString<SeasonDTO>(seasonJson).html
+                        val seasonDoc = Jsoup.parseBodyFragment(seasonHtml, baseUrl)
+                        seasonDoc.select("a").map { episodeFromSeason(it, season.text()) }
+                    }
+                }
+            }
         }
     }
 
-    override fun episodeFromElement(element: Element) = SEpisode.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        name = element.text()
-        episode_number = element.selectFirst("em")?.text()?.toFloatOrNull() ?: 0F
+    private fun episodeFromSeason(element: Element, season: String) = SEpisode.create().apply {
+        setUrlWithoutDomain(element.attr("abs:href") + "watch/")
+        name = "$season : ${element.text()}"
+        episode_number = element.select(".epi__num b").text().toFloatOrNull() ?: 0F
     }
+
+    override fun episodeFromElement(element: Element) = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
@@ -119,29 +183,12 @@ class ArabSeed :
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     override fun List<Video>.sort(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        val quality = preferences.quality
         return sortedWith(
-            compareBy { it.quality.contains(quality) },
-        ).reversed()
-    }
+            compareByDescending<Video> { it.quality.contains(quality) }
+                .thenByDescending { it.url.contains("mp4") },
 
-    // =============================== Search ===============================
-    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
-    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
-    override fun searchAnimeSelector() = popularAnimeSelector()
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val url = if (query.isNotBlank()) {
-            "$baseUrl/find/?find=$query&offset=$page"
-        } else {
-            val filterList = if (filters.isEmpty()) getFilterList() else filters
-            val typeFilter = filterList.find { it is TypeFilter } as TypeFilter
-            val category = typeFilter.toUriPart()
-            if (category.isEmpty()) throw Exception("اختر فلتر")
-
-            "$baseUrl/category/$category"
-        }
-        return GET(url, headers)
+            )
     }
 
     // =========================== Anime Details ============================
@@ -198,33 +245,49 @@ class ArabSeed :
             ),
         )
 
-    // =============================== Latest ===============================
-    override fun latestUpdatesNextPageSelector() = throw UnsupportedOperationException()
-    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
-    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
-    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
 
+    // =============================== Utils ===============================
+    private fun Element.getImageUrl(): String? = when {
+        hasAttr("data-src") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") -> attr("abs:srcset").substringBefore(" ")
+        else -> attr("abs:src")
+    }
+        .substringBefore("?")
+        .takeIf(String::isNotBlank)
+
+    @Serializable
+    class SeasonDTO(val html: String)
     // =============================== Preferences ===============================
+    private var SharedPreferences.customDomain by preferences.delegate(PREF_DOMAIN_CUSTOM_KEY, "")
+    private var SharedPreferences.quality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val videoQualityPref = ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = PREF_QUALITY_TITLE
-            entries = PREF_QUALITY_ENTRIES
-            entryValues = PREF_QUALITY_VALUES
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-        }
-        screen.addPreference(videoQualityPref)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "الجودة المفضلة",
+            entries = listOf("1080p", "720p", "480p", "360p", "240p"),
+            entryValues = listOf("1080", "720", "480", "360", "240"),
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addEditTextPreference(
+            key = PREF_DOMAIN_CUSTOM_KEY,
+            default = "",
+            title = "رابط الموقع",
+            dialogMessage = "أدخل رابط الموقع (على سبيل المثال، https://example.com)",
+            summary = preferences.customDomain,
+            getSummary = { it },
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
+            validate = { it.isBlank() || (it.toHttpUrlOrNull() != null && !it.endsWith("/")) },
+            validationMessage = { "عنوان URL غير صالح أو مشوه أو ينتهي بشرطة مائلة" },
+        )
     }
 
     // ============================= Utilities ==============================
     companion object {
+        private const val PREF_DOMAIN_CUSTOM_KEY = "custom_domain"
         private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
-        private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p")
-        private val PREF_QUALITY_VALUES by lazy {
-            PREF_QUALITY_ENTRIES.map { it.substringBefore("p") }.toTypedArray()
-        }
     }
 }

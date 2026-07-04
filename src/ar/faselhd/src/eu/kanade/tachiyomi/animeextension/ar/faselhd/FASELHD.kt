@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.synchrony.Deobfuscator
 import keiyoushi.utils.addEditTextPreference
@@ -19,6 +20,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -64,50 +66,44 @@ class FASELHD :
     override fun popularAnimeNextPageSelector(): String = "ul.pagination li a.page-link:contains(›)"
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() = "div.epAll a"
+    override fun episodeListSelector() = "div#epAll a"
 
-    private fun seasonsNextPageSelector(seasonNumber: Int) = "div#seasonList div.col-xl-2:nth-child($seasonNumber)" // "div.List--Seasons--Episodes > a:nth-child($seasonNumber)"
+    private fun seasonsListSelector() = "div#seasonList div.seasonDiv"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val episodes = mutableListOf<SEpisode>()
-        var seasonNumber = 1
-        fun episodeExtract(element: Element): SEpisode {
-            val episode = SEpisode.create()
-            episode.setUrlWithoutDomain(element.select("span#liskSh").text())
-            episode.name = "مشاهدة"
-            return episode
-        }
-        fun addEpisodes(document: Document) {
-            if (document.select(episodeListSelector()).isNullOrEmpty()) {
-                document.select("div.shortLink").map { episodes.add(episodeExtract(it)) }
-            } else {
-                document.select(episodeListSelector()).map { episodes.add(episodeFromElement(it)) }
-                document.selectFirst(seasonsNextPageSelector(seasonNumber))?.let {
-                    seasonNumber++
-                    addEpisodes(
-                        client.newCall(
-                            GET(
-                                "$baseUrl/?p=" + it.select("div.seasonDiv")
-                                    .attr("onclick").substringAfterLast("=").substringBeforeLast("'"),
-                                headers,
-                            ),
-                        ).execute().asJsoup(),
-                    )
+        val document = response.useAsJsoup()
+        val url = response.request.url.toString()
+        val episodeDOM = document.select(episodeListSelector())
+        return if (episodeDOM.isEmpty()) {
+            SEpisode.create().apply {
+                setUrlWithoutDomain(url)
+                name = "مشاهدة"
+            }.let(::listOf)
+        } else {
+            document.select(seasonsListSelector()).parallelCatchingFlatMapBlocking { season ->
+                val seasonTitle = season.select(".title").text()
+                val seasonNum = seasonTitle.filter { it.isDigit() }
+                val seasonDoc = if (season.hasClass("active")) {
+                    document
+                } else {
+                    val seasonUrl = "$baseUrl/?p=" + season.attr("onclick")
+                        .substringAfterLast("=").substringBeforeLast("'")
+                    client.newCall(GET(seasonUrl, headers)).awaitSuccess().useAsJsoup()
                 }
-            }
+                seasonDoc.select(episodeListSelector()).map { episode ->
+                    val episodeTitle = episode.text()
+                    val episodeNum = episodeTitle.filter { it.isDigit() }
+                    SEpisode.create().apply {
+                        setUrlWithoutDomain(episode.attr("abs:href"))
+                        name = "$seasonTitle : $episodeTitle"
+                        episode_number = ("$seasonNum.$episodeNum").toFloat()
+                    }
+                }
+            }.reversed()
         }
-
-        addEpisodes(response.asJsoup())
-        return episodes.reversed()
     }
 
-    override fun episodeFromElement(element: Element): SEpisode {
-        val episode = SEpisode.create()
-        episode.setUrlWithoutDomain(element.attr("abs:href"))
-        episode.name = element.ownerDocument()!!.select("div.seasonDiv.active > div.title").text() + " : " + element.text()
-        episode.episode_number = element.text().replace("الحلقة ", "").toFloat()
-        return episode
-    }
+    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
 
@@ -116,13 +112,26 @@ class FASELHD :
     private val videoRegex by lazy { Regex("""(https?:)?//[^"]+\.m3u8""") }
     private val onClickRegex by lazy { Regex("""['"](https?://[^'"]+)['"]""") }
 
-    override fun videoListParse(response: Response): List<Video> = response.asJsoup().select(videoListSelector()).parallelCatchingFlatMapBlocking { element ->
-        val url = onClickRegex.find(element.attr("onclick"))?.groupValues?.get(1) ?: ""
-        val doc = client.newCall(GET(url, headers)).execute().asJsoup()
-        val script = doc.selectFirst("script:containsData(video), script:containsData(mainPlayer)")?.data()
-            ?.let(Deobfuscator::deobfuscateScript) ?: ""
-        val playlist = videoRegex.find(script)?.value
-        playlist?.let { playlistUtils.extractFromHls(it) } ?: emptyList()
+    override fun videoListParse(response: Response): List<Video> {
+        val referer = response.request.url.toString()
+        return response.asJsoup().select(videoListSelector()).parallelCatchingFlatMapBlocking { element ->
+            val url = onClickRegex.find(element.attr("onclick"))?.groupValues?.get(1) ?: ""
+            val newHeaders = headers.newBuilder().apply {
+                add("upgrade-insecure-requests", "1")
+            }.build()
+            val doc = client.newCall(GET(url, newHeaders)).awaitSuccess().useAsJsoup()
+            val script = doc.selectFirst("script:containsData(video), script:containsData(mainPlayer)")?.data()
+                ?.let(Deobfuscator::deobfuscateScript) ?: ""
+            val playlist = videoRegex.find(script)?.value
+            playlist?.let {
+                playlistUtils.extractFromHls(
+                    it,
+                    referer = referer,
+                    masterHeaders = newHeaders,
+                    videoHeaders = newHeaders,
+                )
+            } ?: emptyList()
+        }
     }
 
     override fun List<Video>.sort(): List<Video> {
@@ -180,10 +189,8 @@ class FASELHD :
         // anime.thumbnail_url = document.select("div.posterImg img.poster").attr("src")
 
         val cover = document.select("div.posterImg img.poster").attr("src")
-        anime.thumbnail_url = if (cover.isNullOrEmpty()) {
+        anime.thumbnail_url = cover.ifEmpty {
             document.select("div.col-xl-2 > div.seasonDiv:nth-child(1) > img").attr("data-src")
-        } else {
-            cover
         }
         anime.description = document.select("div.singleDesc").text()
         anime.status = parseStatus(document.select("span:contains(حالة)").text().replace("حالة ", "").replace("المسلسل : ", ""))
